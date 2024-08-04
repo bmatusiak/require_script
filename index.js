@@ -11,6 +11,7 @@
         return eval(code);
     };
     return (function () {
+        require_script.node_require = node_require;
         require_script.isWorker = (typeof WorkerGlobalScope != "undefined" && global_object instanceof WorkerGlobalScope);
         require_script.isFork = (typeof process != "undefined" && process.send ? 1 : 0);
         if (typeof process != "undefined") {

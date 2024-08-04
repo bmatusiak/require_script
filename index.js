@@ -5,8 +5,9 @@
     if (!node_require) return;
     if (global_object.require_script)
         return global_object.require_script;
-    var evalScript = (code, module, exports) => {
+    var evalScript = (_path, code, module, exports) => {
         module, exports;
+        // try { return eval(code); } catch (e) { console.error(_path, e) }
         return eval(code);
     };
     return (function () {
@@ -30,20 +31,21 @@
                 typeof __filename != "undefined" ? __filename :
                     process.cwd() + "\\require_script.js");
 
+        require_script.basepath = (path) => { basePath = path; }
         var babel;
         try {
-            babel = node_require(basePath + "/node_modules/@babel/standalone/babel.js");
+            babel = node_require("@babel/standalone/babel.js");
             loadPlugin("@babel/plugin-transform-modules-umd");
             loadPreset("@babel/preset-react");
             loadPreset("@babel/preset-typescript");
             loadPreset("@babel/preset-flow");
         } catch (e) { babel = false; }
         function loadPlugin(name) {
-            var babelPlugin = node_require(basePath + "/node_modules/" + name);
+            var babelPlugin = node_require(name);
             babel.registerPlugin(name, babelPlugin);
         }
         function loadPreset(name) {
-            var babelPreset = node_require(basePath + "/node_modules/" + name);
+            var babelPreset = node_require(name);
             babel.registerPreset(name, babelPreset);
         }
         require_script.global = global_object;
@@ -66,7 +68,7 @@
                     }
                 }
                 useNode = 1;
-            } catch (e) {e;}
+            } catch (e) { e; }
             if (require_script.isNode) {
                 return new Promise(function (resolve) {
                     var module;
@@ -77,7 +79,7 @@
                         global_object.module = { exports: global_object.exports };
                         module = global_object.module;
                         vm.runInThisContext(output, realPath);
-                        // evalScript(output, global_object.module, global_object.exports)
+                        // evalScript(realPath, output, global_object.module, global_object.exports)
                         if (module && module.exports) {
                             module.script = src;
                         }
@@ -92,9 +94,9 @@
                     }
                 });
             }
-            function parseBabel(src) {                
+            function parseBabel(src) {
                 var realPath = fs.realpathSync(path.resolve(basePath, src));
-                var sourceFileName = require_script.isNode ? realPath: src;//.replace(process.cwd(), basePath).replaceAll("\\", "/");
+                var sourceFileName = require_script.isNode ? realPath : src;//.replace(process.cwd(), basePath).replaceAll("\\", "/");
                 var contents = fs.existsSync(realPath) && fs.readFileSync(realPath).toString("utf8");
                 var opts = require_script.babel || {
                     filename: path.basename(sourceFileName),
@@ -122,7 +124,7 @@
                     if (loadScript[src] && loadScript[src].exports) return resolve(loadScript[src].exports);
                     if (babel) {
                         var sourceCode = parseBabel(src);
-                        evalScript(sourceCode, global_object.module, global_object.exports);
+                        evalScript(src, sourceCode, global_object.module, global_object.exports);
                         if (module && module.exports) {
                             module.script = script;
                         }

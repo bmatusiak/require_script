@@ -33,6 +33,12 @@
                     process.cwd() + "\\require_script.js");
 
         require_script.basepath = (path) => { basePath = path; }
+        require_script.resolve = (src) => {
+            try {
+                var realPath = fs.realpathSync(path.resolve(basePath, src));
+                return fs.existsSync(realPath) && realPath;
+            } catch (e) { return null; }
+        }
         var babel;
         try {
             babel = node_require("@babel/standalone/babel.js");
@@ -74,8 +80,27 @@
                 return new Promise(function (resolve) {
                     var module;
                     if (!useNode) {//
-                        var output = parseBabel(src);
                         var realPath = fs.realpathSync(path.resolve(basePath, src));
+                        var sourceFileName = require_script.isNode ? realPath : src;
+                        var useBabel = false;
+                        switch (path.extname(sourceFileName)) {
+                            case ".jsx":
+                            case ".ts":
+                            case ".tsx":
+                                useBabel = true;
+                                break;
+                            default:
+                                useBabel = false;
+                        }
+                        if (useBabel && !babel) {
+                            throw new Error("babel required to use `jsx, ts, tsx` script files types.")
+                        }
+                        var output;
+                        if (useBabel) {
+                            output = parseBabel(src);
+                        } else {
+                            output = fs.readFileSync(realPath).toString("utf8");
+                        }
                         global_object.exports = {};
                         global_object.module = { exports: global_object.exports };
                         module = global_object.module;
@@ -119,11 +144,30 @@
                     var resolved_module = node_require(src);
                     resolve(resolved_module && (resolved_module.default || resolved_module));
                 } else {
+                    var realPath = fs.realpathSync(path.resolve(basePath, src));
+                    var sourceFileName = require_script.isNode ? realPath : src;
+                    var useEval = false;
                     global_object.exports = {};
                     global_object.module = { exports: global_object.exports };
                     var module = global_object.module;
                     if (loadScript[src] && loadScript[src].exports) return resolve(loadScript[src].exports);
-                    if (babel) {
+                    var useBabel = false;
+                    switch (path.extname(sourceFileName)) {
+                        case ".jsx":
+                        case ".ts":
+                        case ".tsx":
+                            useBabel = true;
+                            break;
+                        default:
+                            useBabel = false;
+                    }
+                    if (useBabel && !babel) {
+                        throw new Error("babel required to use `jsx, ts, tsx` script files types.")
+                    }
+                    if (!useBabel && babel) {
+                        useEval = true;
+                    }
+                    if (useBabel) {
                         var sourceCode = parseBabel(src);
                         evalScript(src, sourceCode, global_object.module, global_object.exports);
                         if (module && module.exports) {
@@ -136,9 +180,30 @@
                         resolve(loadScript[src].exports);
 
                     } else if (!require_script.isWorker) {
-                        var script = document.createElement('script');
-                        script.src = src;
-                        script.onload = function () {
+                        if (!useEval) {
+                            var script = document.createElement('script');
+                            script.src = src;
+                            script.onload = function () {
+                                if (module && module.exports) {
+                                    module.script = script;
+                                }
+                                global_object.exports = {};
+                                global_object.module = { exports: global_object.exports };
+                                loadScript[src] = module || {};
+                                loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
+                                resolve(loadScript[src].exports);
+                            };
+                            script.onerror = function () {
+                                document.head.removeChild(script);
+                                // resolve(loadScript[src]);
+                                reject(new Error('Error loading script: ' + src));
+                            };
+                            try {
+                                document.head.appendChild(script);
+                            } catch (e) { e; }
+                        } else {
+                            var sourceCode = fs.readFileSync(realPath).toString("utf8");
+                            evalScript(src, sourceCode, global_object.module, global_object.exports);
                             if (module && module.exports) {
                                 module.script = script;
                             }
@@ -147,15 +212,7 @@
                             loadScript[src] = module || {};
                             loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
                             resolve(loadScript[src].exports);
-                        };
-                        script.onerror = function () {
-                            document.head.removeChild(script);
-                            // resolve(loadScript[src]);
-                            reject(new Error('Error loading script: ' + src));
-                        };
-                        try {
-                            document.head.appendChild(script);
-                        } catch (e) { e; }
+                        }
                     } else {
                         /* global importScripts WorkerGlobalScope */
                         importScripts(src);

@@ -32,13 +32,13 @@
                 typeof __filename != "undefined" ? __filename :
                     process.cwd() + "\\require_script.js");
 
-        require_script.basepath = (path) => { basePath = path; }
+        require_script.basepath = (path) => { basePath = path; };
         require_script.resolve = (src) => {
             try {
                 var realPath = fs.realpathSync(path.resolve(basePath, src));
                 return fs.existsSync(realPath) && realPath;
             } catch (e) { return null; }
-        }
+        };
         var babel;
         try {
             babel = node_require("@babel/standalone/babel.js");
@@ -94,7 +94,7 @@
                                 useBabel = false;
                         }
                         if (useBabel && !babel) {
-                            throw new Error("babel required to use `jsx, ts, tsx` script files types.")
+                            throw new Error("babel required to use `jsx, ts, tsx` script files types.");
                         }
                         var output;
                         if (useBabel) {
@@ -163,13 +163,14 @@
                             useBabel = false;
                     }
                     if (useBabel && !babel) {
-                        throw new Error("babel required to use `jsx, ts, tsx` script files types.")
+                        throw new Error("babel required to use `jsx, ts, tsx` script files types.");
                     }
                     if (!useBabel && babel) {
                         // useEval = true;
                     }
+                    var sourceCode;
                     if (useBabel) {
-                        var sourceCode = parseBabel(src);
+                        sourceCode = parseBabel(src);
                         evalScript(src, sourceCode, global_object.module, global_object.exports);
                         if (module && module.exports) {
                             module.script = script;
@@ -203,7 +204,7 @@
                                 document.head.appendChild(script);
                             } catch (e) { e; }
                         } else {
-                            var sourceCode = fs.readFileSync(realPath).toString("utf8");
+                            sourceCode = fs.readFileSync(realPath).toString("utf8");
                             evalScript(src, sourceCode, global_object.module, global_object.exports);
                             if (module && module.exports) {
                                 module.script = script;

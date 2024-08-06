@@ -61,7 +61,7 @@
         global_object.requireScript = require_script;
         function require_script(src, useNode) {
             useNode = useNode || 0;
-            if (src.indexOf("require_script") > -1)
+            if (src.indexOf("require_script") > -1 && !(src.indexOf("/") > -1))
                 return require_script;
             var loadScript = require_script;
             try {

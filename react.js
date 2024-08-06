@@ -1,0 +1,4 @@
+(function () {
+    if (typeof module != "undefined")
+        module.exports = require("react");
+})();

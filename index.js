@@ -66,6 +66,7 @@
             var loadScript = require_script;
             try {
                 if (src[0] == ".") throw '';
+                if(src != "nw.gui")
                 try {
                     node_require && node_require.resolve(src);
                 } catch (e) {
@@ -165,7 +166,7 @@
                         throw new Error("babel required to use `jsx, ts, tsx` script files types.")
                     }
                     if (!useBabel && babel) {
-                        useEval = true;
+                        // useEval = true;
                     }
                     if (useBabel) {
                         var sourceCode = parseBabel(src);

@@ -39,6 +39,22 @@
                 return fs.existsSync(realPath) && realPath;
             } catch (e) { return null; }
         };
+        require_script.cache = async (src, module) => {
+            if (module && module.exports instanceof Promise) {
+                module.exports = await module.exports;
+            }
+            if (module) {
+                require_script.cache[src] = module;
+                require_script.cache[src].exports = (require_script.cache[src].exports.default || require_script.cache[src].exports);
+            }
+            return require_script.cache_check(src);
+        };
+        require_script.cache_check = (src) => {
+            return require_script.cache[src] && require_script.cache[src].exports;
+        };
+        require_script.load = async (src) => {
+            return await (await require_script(src))();
+        };
         var babel;
         try {
             babel = node_require("@babel/standalone/babel.js");
@@ -63,18 +79,17 @@
             useNode = useNode || 0;
             if (src.indexOf("require_script") > -1 && !(src.indexOf("/") > -1))
                 return require_script;
-            var loadScript = require_script;
             try {
                 if (src[0] == ".") throw '';
-                if(src != "nw.gui")
-                try {
-                    node_require && node_require.resolve(src);
-                } catch (e) {
-                    if (e.toString().indexOf("Cannot find module" != -1)) {
-                        node_require && node_require.resolve(basePath + "/node_modules/" + src);
-                        src = basePath + "/node_modules/" + src;
+                if (src != "nw.gui")
+                    try {
+                        node_require && node_require.resolve(src);
+                    } catch (e) {
+                        if (e.toString().indexOf("Cannot find module" != -1)) {
+                            node_require && node_require.resolve(basePath + "/node_modules/" + src);
+                            src = basePath + "/node_modules/" + src;
+                        }
                     }
-                }
                 useNode = 1;
             } catch (e) { e; }
             if (require_script.isNode) {
@@ -112,9 +127,7 @@
                         }
                         global_object.exports = {};
                         global_object.module = { exports: global_object.exports };
-                        loadScript[src] = module || {};
-                        loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
-                        resolve(loadScript[src].exports);
+                        require_script.cache(src, module).then(resolve);
                     } else {
                         module = node_require(src);
                         resolve(module && (module.default || module));
@@ -151,7 +164,7 @@
                     global_object.exports = {};
                     global_object.module = { exports: global_object.exports };
                     var module = global_object.module;
-                    if (loadScript[src] && loadScript[src].exports) return resolve(loadScript[src].exports);
+                    if (require_script.cache_check(src)) return resolve(require_script.cache_check(src));
                     var useBabel = false;
                     switch (path.extname(sourceFileName)) {
                         case ".jsx":
@@ -177,9 +190,7 @@
                         }
                         global_object.exports = {};
                         global_object.module = { exports: global_object.exports };
-                        loadScript[src] = module || {};
-                        loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
-                        resolve(loadScript[src].exports);
+                        require_script.cache(src, module).then(resolve);
 
                     } else if (!require_script.isWorker) {
                         if (!useEval) {
@@ -191,13 +202,10 @@
                                 }
                                 global_object.exports = {};
                                 global_object.module = { exports: global_object.exports };
-                                loadScript[src] = module || {};
-                                loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
-                                resolve(loadScript[src].exports);
+                                require_script.cache(src, module).then(resolve);
                             };
                             script.onerror = function () {
                                 document.head.removeChild(script);
-                                // resolve(loadScript[src]);
                                 reject(new Error('Error loading script: ' + src));
                             };
                             try {
@@ -211,9 +219,7 @@
                             }
                             global_object.exports = {};
                             global_object.module = { exports: global_object.exports };
-                            loadScript[src] = module || {};
-                            loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
-                            resolve(loadScript[src].exports);
+                            require_script.cache(src, module).then(resolve);
                         }
                     } else {
                         /* global importScripts WorkerGlobalScope */
@@ -223,9 +229,7 @@
                         }
                         global_object.exports = {};
                         global_object.module = { exports: global_object.exports };
-                        loadScript[src] = module || {};
-                        loadScript[src].exports = (loadScript[src].exports.default || loadScript[src].exports);
-                        resolve(loadScript[src].exports);
+                        require_script.cache(src, module).then(resolve);
                     }
                 }
             });

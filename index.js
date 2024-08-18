@@ -79,25 +79,23 @@
         }
         var basePath = path.dirname(path.resolve(request_dir, request_file));
         require_script.basepath = (path) => { basePath = path; };
-        function requireWrap(src) {
+        require_script.wrap = function requireWrap(src) {
             return "(function (require,__dirname, __filename, module){" + src + "\n})(global.require,global.__dirname,global.__filename, global.module);";
-        }
+        };
+        require_script.resolve = function requireResolve(src_location) {
+            if (!(src_location[0] == ".")) return $require.resolve(src_location);
+            return path.resolve(basePath, src_location);
+        };
         function require_script(src_location) {
             if (!(src_location[0] == ".")) return $require(src_location);
             var realPath = path.resolve(basePath, src_location);
             const script_dir = path.dirname(realPath);
             const script_name = path.basename(realPath);
-
             if (path.extname(realPath) == ".json") { return JSON.parse(fs.readFileSync(realPath)); }
             if (realPath == src_location) return $require(src_location);
             const newRequire = createRequire(realPath);
-            var new_require = function (src) {
-                var rs = requireScript(newRequire, script_dir, script_name);
-                return rs(src);
-            };
+            var new_require = requireScript(newRequire, script_dir, script_name);
             var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
-
-
             var module = ((global_object) => {
                 global_object.exports = {};
                 global_object.module = { exports: global_object.exports };
@@ -109,9 +107,9 @@
                 var old_filename = global_object.__filename;
                 global_object.__filename = script_name;
                 if (!require_script.isWorker) {
-                    vm.runInThisContext(requireWrap(output), realPath);
+                    vm.runInThisContext(require_script.wrap(output), realPath);
                 } else {
-                    eval(requireWrap(output));
+                    eval(require_script.wrap(output));
                 }
                 global_object.require = oldRequire;
                 global_object.__dirname = old_dirname;

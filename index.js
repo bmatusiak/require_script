@@ -1,7 +1,8 @@
-module.exports = (function () {
+(function () {
+    const isWorker = (typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope);
     const global_object = (() => {
         if (process.__nwjs) {
-            return global;
+            return globalThis;
         } else {
             return global;
         }
@@ -31,8 +32,8 @@ module.exports = (function () {
     function parseBabel(src) {
         var contents = fs.existsSync(src) && fs.readFileSync(src).toString("utf8");
         var srcPath = src;
-        if(process.__nwjs){
-            srcPath = path.relative(path.dirname(path.normalize(process.cwd()+window.location.pathname)),src);
+        if (process.__nwjs) {
+            srcPath = path.relative(path.dirname(path.normalize(process.cwd() + global_object.location.pathname)), src);
         }
         var opts = requireScript.babel || {
             filename: path.basename(src),
@@ -65,8 +66,22 @@ module.exports = (function () {
         return useBabel;
     }
     function requireScript($require, request_dir, request_file) {
+        require_script.isWorker = isWorker;
+        require_script.isFork = (typeof process != "undefined" && process.send ? 1 : 0);
+        if (typeof process != "undefined") {
+            if (process.__nwjs) {
+                require_script.isNWJS = 1;
+                require_script.isNode = 0;
+            } else {
+                require_script.isNWJS = 0;
+                require_script.isNode = 1;
+            }
+        }
         var basePath = path.dirname(path.resolve(request_dir, request_file));
         require_script.basepath = (path) => { basePath = path; };
+        function requireWrap(src) {
+            return "(function (require,__dirname, __filename, module){" + src + "\n})(global.require,global.__dirname,global.__filename, global.module);";
+        }
         function require_script(src_location) {
             if (!(src_location[0] == ".")) return $require(src_location);
             var realPath = path.resolve(basePath, src_location);
@@ -80,32 +95,44 @@ module.exports = (function () {
                 var rs = requireScript(newRequire, script_dir, script_name);
                 return rs(src);
             };
-            global_object.exports = {};
-            global_object.module = { exports: global_object.exports };
-            var module = global_object.module;
-            var oldRequire = global_object.require;
-            global_object.require = new_require;
-            var old_dirname = global_object.__dirname;
-            global_object.__dirname = script_dir;
-            var old_filename = global_object.__filename;
-            global_object.__filename = script_name;
             var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
-            function requireWrap(src) {
-                return "(function (require,__dirname, __filename, module){" + src + "\n})(global.require,global.__dirname,global.__filename, global.module);";
-            }
-            vm.runInThisContext(requireWrap(output), realPath);
+
+
+            var module = ((global_object) => {
+                global_object.exports = {};
+                global_object.module = { exports: global_object.exports };
+                var module = global_object.module;
+                var oldRequire = global_object.require;
+                global_object.require = new_require;
+                var old_dirname = global_object.__dirname;
+                global_object.__dirname = script_dir;
+                var old_filename = global_object.__filename;
+                global_object.__filename = script_name;
+                if (!require_script.isWorker) {
+                    vm.runInThisContext(requireWrap(output), realPath);
+                } else {
+                    eval(requireWrap(output));
+                }
+                global_object.require = oldRequire;
+                global_object.__dirname = old_dirname;
+                global_object.__filename = old_filename;
+                global_object.exports = {};
+                global_object.module = { exports: global_object.exports };
+                return module;
+            })(require_script.isWorker ? global : global_object);
+
             if (module && module.exports) {
                 module.script = src_location;
             }
-            global_object.require = oldRequire;
-            global_object.__dirname = old_dirname;
-            global_object.__filename = old_filename;
-            global_object.exports = {};
-            global_object.module = { exports: global_object.exports };
             return module.exports;
+
         }
         return require_script;
     }
-    return requireScript;
 
+    if ((typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope) || typeof module.exports == "undefined") {
+        globalThis.require_script = requireScript;
+    } else {
+        module.exports = requireScript;
+    }
 })();

@@ -1,4 +1,5 @@
 (function () {
+    const require_cache = {};
     const isWorker = (typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope);
     const global_object = (() => {
         if (process.__nwjs) {
@@ -62,10 +63,10 @@
             default:
                 useBabel = false;
         }
-
         return useBabel;
     }
     function requireScript($require, request_dir, request_file) {
+        require_script.require = $require;
         require_script.isWorker = isWorker;
         require_script.isFork = (typeof process != "undefined" && process.send ? 1 : 0);
         if (typeof process != "undefined") {
@@ -86,25 +87,36 @@
             if (!(src_location[0] == ".")) return $require.resolve(src_location);
             return path.resolve(basePath, src_location);
         };
+        require_script.cache = (src, module) => {
+            if (module) {
+                require_cache[src] = module;
+            }
+            return require_cache[src];
+        };
         function require_script(src_location) {
             if (!(src_location[0] == ".")) return $require(src_location);
             var realPath = path.resolve(basePath, src_location);
             const script_dir = path.dirname(realPath);
-            const script_name = path.basename(realPath);
+            const script_name = realPath;
             if (path.extname(realPath) == ".json") { return JSON.parse(fs.readFileSync(realPath)); }
             if (realPath == src_location) return $require(src_location);
+            var module = require_script.cache(realPath);
+            if (module) return module.exports;
             const newRequire = createRequire(realPath);
             var new_require = requireScript(newRequire, script_dir, script_name);
             var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
-            var module = ((global_object) => {
+            module = ((global_object) => {
                 global_object.exports = {};
                 global_object.module = { exports: global_object.exports };
                 var module = global_object.module;
+                module.require = new_require;
+                module.__dirname = script_dir;
+                module.__filename = script_name;
                 var oldRequire = global_object.require;
-                global_object.require = new_require;
                 var old_dirname = global_object.__dirname;
-                global_object.__dirname = script_dir;
                 var old_filename = global_object.__filename;
+                global_object.require = new_require;
+                global_object.__dirname = script_dir;
                 global_object.__filename = script_name;
                 if (!require_script.isWorker) {
                     vm.runInThisContext(require_script.wrap(output), realPath);
@@ -118,16 +130,14 @@
                 global_object.module = { exports: global_object.exports };
                 return module;
             })(require_script.isWorker ? global : global_object);
-
             if (module && module.exports) {
                 module.script = src_location;
             }
+            require_script.cache(realPath, module);
             return module.exports;
-
         }
         return require_script;
     }
-
     if ((typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope) || typeof module.exports == "undefined") {
         globalThis.require_script = requireScript;
     } else {

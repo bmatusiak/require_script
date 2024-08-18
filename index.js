@@ -1,6 +1,4 @@
-
 module.exports = (function () {
-
     const global_object = (() => {
         if (process.__nwjs) {
             return global;
@@ -8,12 +6,10 @@ module.exports = (function () {
             return global;
         }
     })();
-
     var { createRequire } = require("module");
     var fs = require("fs");
     var path = require("path");
     var vm = require("vm");
-
     var babel;
     try {
         babel = require("@babel/standalone/babel.js");
@@ -69,7 +65,6 @@ module.exports = (function () {
         return useBabel;
     }
     function requireScript($require, request_dir, request_file) {
-        console.log(request_dir, request_file)
         var basePath = path.dirname(path.resolve(request_dir, request_file));
         require_script.basepath = (path) => { basePath = path; };
         function require_script(src_location) {
@@ -85,19 +80,15 @@ module.exports = (function () {
                 var rs = requireScript(newRequire, script_dir, script_name);
                 return rs(src);
             };
-
             global_object.exports = {};
             global_object.module = { exports: global_object.exports };
             var module = global_object.module;
-
             var oldRequire = global_object.require;
             global_object.require = new_require;
-
             var old_dirname = global_object.__dirname;
             global_object.__dirname = script_dir;
             var old_filename = global_object.__filename;
             global_object.__filename = script_name;
-
             var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
             function requireWrap(src) {
                 return "(function (require,__dirname, __filename, module){" + src + "\n})(global.require,global.__dirname,global.__filename, global.module);";
@@ -107,16 +98,10 @@ module.exports = (function () {
                 module.script = src_location;
             }
             global_object.require = oldRequire;
-
             global_object.__dirname = old_dirname;
             global_object.__filename = old_filename;
-
             global_object.exports = {};
             global_object.module = { exports: global_object.exports };
-            // if (!module.exports.default) module.exports.default = module.exports;
-
-            console.log(realPath);
-
             return module.exports;
         }
         return require_script;

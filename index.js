@@ -1,18 +1,73 @@
-(function (global_object) {
-
-    if (!global_object) return;
-    const node_require = require;
-    if (!node_require) return;
-    if (global_object.require_script)
-        return global_object.require_script;
-    var evalScript = (_path, code, module, exports) => {
-        module, exports;
-        // try { return eval(code); } catch (e) { console.error(_path, e) }
-        return eval(code);
-    };
-    return (function () {
-        require_script.node_require = node_require;
-        require_script.isWorker = (typeof WorkerGlobalScope != "undefined" && global_object instanceof WorkerGlobalScope);
+(function () {
+    const require_cache = {};
+    const isWorker = (typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope);
+    const global_object = (() => {
+        if (process.__nwjs) {
+            return globalThis;
+        } else {
+            return global;
+        }
+    })();
+    var { createRequire } = require("module");
+    var fs = require("fs");
+    var path = require("path");
+    var vm = require("vm");
+    var babel;
+    try {
+        babel = require("@babel/standalone/babel.js");
+        loadPlugin("@babel/plugin-transform-modules-umd");
+        loadPreset("@babel/preset-react");
+        loadPreset("@babel/preset-typescript");
+        loadPreset("@babel/preset-flow");
+    } catch (e) { babel = false; }
+    function loadPlugin(name) {
+        if (babel.availablePlugins[name]) return;
+        var babelPlugin = require(name);
+        babel.registerPlugin(name, babelPlugin);
+    }
+    function loadPreset(name) {
+        if (babel.availablePresets[name]) return;
+        var babelPreset = require(name);
+        babel.registerPreset(name, babelPreset);
+    }
+    function parseBabel(src) {
+        var contents = fs.existsSync(src) && fs.readFileSync(src).toString("utf8");
+        var srcPath = src;
+        if (process.__nwjs) {
+            srcPath = path.relative(path.dirname(path.normalize(process.cwd() + global_object.location.pathname)), src);
+        }
+        var opts = requireScript.babel || {
+            filename: path.basename(src),
+            sourceMaps: "inline",
+            sourceFileName: srcPath
+        };
+        opts.plugins = ["@babel/plugin-transform-modules-umd"];
+        opts.presets = [];
+        // if (contents.indexOf("React") > -1)
+        opts.presets.push(['@babel/preset-flow']);
+        opts.presets.push(['@babel/preset-react']);
+        if (path.extname(src) == ".ts" || path.extname(src) == ".tsx")
+            opts.presets.push("@babel/preset-typescript");
+        var output = babel.transform(contents, opts).code;
+        return output;
+    }
+    function useBabel(realPath) {
+        var useBabel = false;
+        switch (path.extname(realPath)) {
+            case ".js":
+            case ".jsx":
+            case ".ts":
+            case ".tsx":
+                useBabel = true;
+                break;
+            default:
+                useBabel = false;
+        }
+        return useBabel;
+    }
+    function requireScript($require, request_dir, request_file) {
+        require_script.require = $require;
+        require_script.isWorker = isWorker;
         require_script.isFork = (typeof process != "undefined" && process.send ? 1 : 0);
         if (typeof process != "undefined") {
             if (process.__nwjs) {
@@ -23,225 +78,69 @@
                 require_script.isNode = 1;
             }
         }
-        var path = node_require("path");
-        var fs = node_require("fs");
-        var vm = node_require('vm');
-
-        var basePath = path.dirname(
-            typeof global_object != "undefined" && global_object.location ? "." + global_object.location.pathname :
-                typeof __filename != "undefined" ? __filename :
-                    process.cwd() + "\\require_script.js");
-
+        var basePath = path.dirname(path.resolve(request_dir, request_file));
         require_script.basepath = (path) => { basePath = path; };
-        require_script.resolve = (src) => {
-            try {
-                var realPath = fs.realpathSync(path.resolve(basePath, src));
-                return fs.existsSync(realPath) && realPath;
-            } catch (e) { return null; }
+        require_script.wrap = function requireWrap(src) {
+            return "(function (require,__dirname, __filename, module){" + src + "\n})(global.require,global.__dirname,global.__filename, global.module);";
         };
-        require_script.cache = async (src, module) => {
-            if (module && module.exports instanceof Promise) {
-                module.exports = await module.exports;
-            }
+        require_script.resolve = function requireResolve(src_location) {
+            if (!(src_location[0] == ".")) return $require.resolve(src_location);
+            return path.resolve(basePath, src_location);
+        };
+        require_script.cache = (src, module) => {
             if (module) {
-                require_script.cache[src] = module;
-                require_script.cache[src].exports = (require_script.cache[src].exports.default || require_script.cache[src].exports);
+                require_cache[src] = module;
             }
-            return require_script.cache_check(src);
+            return require_cache[src];
         };
-        require_script.cache_check = (src) => {
-            return require_script.cache[src] && require_script.cache[src].exports;
-        };
-        require_script.load = async (src) => {
-            return await (await require_script(src))();
-        };
-        var babel;
-        try {
-            babel = node_require("@babel/standalone/babel.js");
-            loadPlugin("@babel/plugin-transform-modules-umd");
-            loadPreset("@babel/preset-react");
-            loadPreset("@babel/preset-typescript");
-            loadPreset("@babel/preset-flow");
-        } catch (e) { babel = false; }
-        function loadPlugin(name) {
-            var babelPlugin = node_require(name);
-            babel.registerPlugin(name, babelPlugin);
-        }
-        function loadPreset(name) {
-            var babelPreset = node_require(name);
-            babel.registerPreset(name, babelPreset);
-        }
-        require_script.global = global_object;
-        global_object.require = require_script;
-        global_object.require_script = require_script;
-        global_object.requireScript = require_script;
-        function require_script(src, useNode) {
-            useNode = useNode || 0;
-            if (src.indexOf("require_script") > -1 && !(src.indexOf("/") > -1))
-                return require_script;
-            try {
-                if (src[0] == ".") throw '';
-                if (src != "nw.gui")
-                    try {
-                        node_require && node_require.resolve(src);
-                    } catch (e) {
-                        if (e.toString().indexOf("Cannot find module" != -1)) {
-                            node_require && node_require.resolve(basePath + "/node_modules/" + src);
-                            src = basePath + "/node_modules/" + src;
-                        }
-                    }
-                useNode = 1;
-            } catch (e) { e; }
-            if (require_script.isNode) {
-                return new Promise(function (resolve) {
-                    var module;
-                    if (!useNode) {//
-                        var realPath = fs.realpathSync(path.resolve(basePath, src));
-                        var sourceFileName = require_script.isNode ? realPath : src;
-                        var useBabel = false;
-                        switch (path.extname(sourceFileName)) {
-                            case ".jsx":
-                            case ".ts":
-                            case ".tsx":
-                                useBabel = true;
-                                break;
-                            default:
-                                useBabel = false;
-                        }
-                        if (useBabel && !babel) {
-                            throw new Error("babel required to use `jsx, ts, tsx` script files types.");
-                        }
-                        var output;
-                        if (useBabel) {
-                            output = parseBabel(src);
-                        } else {
-                            output = fs.readFileSync(realPath).toString("utf8");
-                        }
-                        global_object.exports = {};
-                        global_object.module = { exports: global_object.exports };
-                        module = global_object.module;
-                        vm.runInThisContext(output, realPath);
-                        // evalScript(realPath, output, global_object.module, global_object.exports)
-                        if (module && module.exports) {
-                            module.script = src;
-                        }
-                        global_object.exports = {};
-                        global_object.module = { exports: global_object.exports };
-                        require_script.cache(src, module).then(resolve);
-                    } else {
-                        module = node_require(src);
-                        resolve(module && (module.default || module));
-                    }
-                });
-            }
-            function parseBabel(src) {
-                var realPath = fs.realpathSync(path.resolve(basePath, src));
-                var sourceFileName = require_script.isNode ? realPath : src;//.replace(process.cwd(), basePath).replaceAll("\\", "/");
-                var contents = fs.existsSync(realPath) && fs.readFileSync(realPath).toString("utf8");
-                var opts = require_script.babel || {
-                    filename: path.basename(sourceFileName),
-                    sourceMaps: "inline",
-                    sourceFileName: sourceFileName
-                };
-                opts.plugins = ["@babel/plugin-transform-modules-umd"];
-                opts.presets = [];
-                // if (contents.indexOf("React") > -1)
-                opts.presets.push(['@babel/preset-flow']);
-                opts.presets.push(['@babel/preset-react']);
-                if (path.extname(sourceFileName) == ".ts" || path.extname(sourceFileName) == ".tsx")
-                    opts.presets.push("@babel/preset-typescript");
-                var output = babel.transform(contents, opts).code;
-                return output;
-            }
-            return new Promise(function (resolve, reject) {
-                if (useNode) {
-                    var resolved_module = node_require(src);
-                    resolve(resolved_module && (resolved_module.default || resolved_module));
+        function require_script(src_location) {
+            if (!(src_location[0] == ".")) return $require(src_location);
+            var realPath = path.resolve(basePath, src_location);
+            const script_dir = path.dirname(realPath);
+            const script_name = realPath;
+            if (path.extname(realPath) == ".json") { return JSON.parse(fs.readFileSync(realPath)); }
+            if (realPath == src_location) return $require(src_location);
+            var module = require_script.cache(realPath);
+            if (module) return module.exports;
+            const newRequire = createRequire(realPath);
+            var new_require = requireScript(newRequire, script_dir, script_name);
+            var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
+            module = ((global_object) => {
+                global_object.exports = {};
+                global_object.module = { exports: global_object.exports };
+                var module = global_object.module;
+                module.require = new_require;
+                module.__dirname = script_dir;
+                module.__filename = script_name;
+                var oldRequire = global_object.require;
+                var old_dirname = global_object.__dirname;
+                var old_filename = global_object.__filename;
+                global_object.require = new_require;
+                global_object.__dirname = script_dir;
+                global_object.__filename = script_name;
+                if (!require_script.isWorker) {
+                    vm.runInThisContext(require_script.wrap(output), realPath);
                 } else {
-                    var realPath = fs.realpathSync(path.resolve(basePath, src));
-                    var sourceFileName = require_script.isNode ? realPath : src;
-                    var useEval = false;
-                    global_object.exports = {};
-                    global_object.module = { exports: global_object.exports };
-                    var module = global_object.module;
-                    if (require_script.cache_check(src)) return resolve(require_script.cache_check(src));
-                    var useBabel = false;
-                    switch (path.extname(sourceFileName)) {
-                        case ".jsx":
-                        case ".ts":
-                        case ".tsx":
-                            useBabel = true;
-                            break;
-                        default:
-                            useBabel = false;
-                    }
-                    if (useBabel && !babel) {
-                        throw new Error("babel required to use `jsx, ts, tsx` script files types.");
-                    }
-                    if (!useBabel && babel) {
-                        // useEval = true;
-                    }
-                    var sourceCode;
-                    if (useBabel) {
-                        sourceCode = parseBabel(src);
-                        evalScript(src, sourceCode, global_object.module, global_object.exports);
-                        if (module && module.exports) {
-                            module.script = script;
-                        }
-                        global_object.exports = {};
-                        global_object.module = { exports: global_object.exports };
-                        require_script.cache(src, module).then(resolve);
-
-                    } else if (!require_script.isWorker) {
-                        if (!useEval) {
-                            var script = document.createElement('script');
-                            script.src = src;
-                            script.onload = function () {
-                                if (module && module.exports) {
-                                    module.script = script;
-                                }
-                                global_object.exports = {};
-                                global_object.module = { exports: global_object.exports };
-                                require_script.cache(src, module).then(resolve);
-                            };
-                            script.onerror = function () {
-                                document.head.removeChild(script);
-                                reject(new Error('Error loading script: ' + src));
-                            };
-                            try {
-                                document.head.appendChild(script);
-                            } catch (e) { e; }
-                        } else {
-                            sourceCode = fs.readFileSync(realPath).toString("utf8");
-                            evalScript(src, sourceCode, global_object.module, global_object.exports);
-                            if (module && module.exports) {
-                                module.script = script;
-                            }
-                            global_object.exports = {};
-                            global_object.module = { exports: global_object.exports };
-                            require_script.cache(src, module).then(resolve);
-                        }
-                    } else {
-                        /* global importScripts WorkerGlobalScope */
-                        importScripts(src);
-                        if (module && module.exports) {
-                            module.script = script;
-                        }
-                        global_object.exports = {};
-                        global_object.module = { exports: global_object.exports };
-                        require_script.cache(src, module).then(resolve);
-                    }
+                    eval(require_script.wrap(output));
                 }
-            });
+                global_object.require = oldRequire;
+                global_object.__dirname = old_dirname;
+                global_object.__filename = old_filename;
+                global_object.exports = {};
+                global_object.module = { exports: global_object.exports };
+                return module;
+            })(require_script.isWorker ? global : global_object);
+            if (module && module.exports) {
+                module.script = src_location;
+            }
+            require_script.cache(realPath, module);
+            return module.exports;
         }
-        if (typeof module != "undefined")
-            module.exports = require_script;
-
         return require_script;
-    })();
-})(
-    typeof window != "undefined" ? window :
-        typeof globalThis != "undefined" ? globalThis :
-            typeof global != "undefined" ? global :
-                false
-);
+    }
+    if ((typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope) || typeof module.exports == "undefined") {
+        globalThis.require_script = requireScript;
+    } else {
+        module.exports = requireScript;
+    }
+})();

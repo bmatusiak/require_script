@@ -1,4 +1,5 @@
 (function () {
+    // console.log("require_script")
     const require_cache = {};
     const isWorker = (typeof WorkerGlobalScope != "undefined" && globalThis instanceof WorkerGlobalScope);
     const global_object = (() => {
@@ -15,11 +16,11 @@
     var babel;
     try {
         babel = require("@babel/standalone/babel.js");
-        loadPlugin("@babel/plugin-transform-modules-umd");
+        babel.registerPlugin("manual-code-wrapper", manual_code_wrapper);
         loadPreset("@babel/preset-react");
         loadPreset("@babel/preset-typescript");
         loadPreset("@babel/preset-flow");
-    } catch (e) { babel = false; }
+    } catch (e) { babel = false; console.error(e); }
     function loadPlugin(name) {
         if (babel.availablePlugins[name]) return;
         var babelPlugin = require(name);
@@ -38,10 +39,13 @@
         }
         var opts = requireScript.babel || {
             filename: path.basename(src),
+            filenameRelative: src,
             sourceMaps: "inline",
-            sourceFileName: srcPath
+            // sourceFileName: srcPath
         };
-        opts.plugins = ["@babel/plugin-transform-modules-umd"];
+        opts.plugins = [
+            'manual-code-wrapper'
+        ];
         opts.presets = [];
         // if (contents.indexOf("React") > -1)
         opts.presets.push(['@babel/preset-flow']);
@@ -104,7 +108,8 @@
             if (module) return module.exports;
             const newRequire = createRequire(realPath);
             var new_require = requireScript(newRequire, script_dir, script_name);
-            var output = useBabel(src_location) ? parseBabel(realPath) : fs.readFileSync(realPath);
+            var use_babel = useBabel(src_location);
+            var output = use_babel ? parseBabel(realPath) : fs.readFileSync(realPath);
             module = ((global_object) => {
                 global_object.exports = {};
                 global_object.module = { exports: global_object.exports };
@@ -119,9 +124,9 @@
                 global_object.__dirname = script_dir;
                 global_object.__filename = script_name;
                 if (!require_script.isWorker) {
-                    vm.runInThisContext(require_script.wrap(output), realPath);
+                    vm.runInThisContext(use_babel ? output : require_script.wrap(output), realPath);
                 } else {
-                    eval(require_script.wrap(output));
+                    eval(use_babel ? output : require_script.wrap(output));
                 }
                 global_object.require = oldRequire;
                 global_object.__dirname = old_dirname;
@@ -143,4 +148,56 @@
     } else {
         module.exports = requireScript;
     }
+
+    function manual_code_wrapper({ types: t }) {
+        return {
+            name: "manual-code-wrapper",
+            visitor: {
+                Program(path) {
+                    if (!path.wrapped) {
+                        path.wrapped = true; // Set the flag to true
+
+                        const wrapperFunction = t.functionExpression(
+                            null,
+                            [
+                                t.identifier("require"),
+                                t.identifier("__dirname"),
+                                t.identifier("__filename"),
+                                t.identifier("module")
+                            ],
+                            t.blockStatement(path.node.body)
+                        );
+
+                        const wrappedExpression = t.callExpression(
+                            wrapperFunction,
+                            [
+                                t.memberExpression(
+                                    t.identifier("global"),
+                                    t.identifier("require")
+                                ),
+                                t.memberExpression(
+                                    t.identifier("global"),
+                                    t.identifier("__dirname")
+                                ),
+                                t.memberExpression(
+                                    t.identifier("global"),
+                                    t.identifier("__filename")
+                                ),
+                                t.memberExpression(
+                                    t.identifier("global"),
+                                    t.identifier("module")
+                                )
+                            ]
+                        );
+
+                        const newProgram = t.program([t.expressionStatement(wrappedExpression)]);
+
+                        path.replaceWith(newProgram);
+                    }
+                }
+            }
+        };
+    };
+
+
 })();

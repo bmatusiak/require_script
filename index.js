@@ -54,11 +54,12 @@
             'manual-code-wrapper'
         ];
         opts.presets = [];
-        // if (contents.indexOf("React") > -1)
         opts.presets.push(['@babel/preset-flow']);
+        // if (contents.indexOf("React") > -1)
         opts.presets.push(['@babel/preset-react']);
         if (path.extname(src) == ".ts" || path.extname(src) == ".tsx")
-            opts.presets.push("@babel/preset-typescript");
+            opts.presets.push(["@babel/preset-typescript", { isTSX: path.extname(src) == ".tsx" }]);
+
         var output = babel.transform(contents, opts).code;
         return { output, srcPath };
     }

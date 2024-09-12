@@ -12,6 +12,7 @@
     var { createRequire } = require("module");
     var fs = require("fs");
     var path = require("path");
+    var url = require("url");
     var vm = require("vm");
     var babel;
     try {
@@ -21,11 +22,11 @@
         loadPreset("@babel/preset-typescript");
         loadPreset("@babel/preset-flow");
     } catch (e) { babel = false; console.error(e); }
-    function loadPlugin(name) {
-        if (babel.availablePlugins[name]) return;
-        var babelPlugin = require(name);
-        babel.registerPlugin(name, babelPlugin);
-    }
+    // function loadPlugin(name) {
+    //     if (babel.availablePlugins[name]) return;
+    //     var babelPlugin = require(name);
+    //     babel.registerPlugin(name, babelPlugin);
+    // }
     function loadPreset(name) {
         if (babel.availablePresets[name]) return;
         var babelPreset = require(name);
@@ -35,13 +36,19 @@
         var contents = fs.existsSync(src) && fs.readFileSync(src).toString("utf8");
         var srcPath = src;
         if (process.__nwjs) {
-            srcPath = path.relative(path.dirname(path.normalize(process.cwd() + global_object.location.pathname)), src);
+            srcPath = '\\' + path.relative(path.join(srcPath, path.relative(srcPath, process.cwd())), srcPath);
+            srcPath = url.format({
+                pathname: srcPath.replace(/\\/g, '/'),
+                protocol: global_object.location.protocol,
+                host: "//" + global_object.location.hostname,
+            });
+            srcPath = srcPath.replace(/\\/g, '/');
         }
         var opts = requireScript.babel || {
-            filename: path.basename(src),
-            filenameRelative: src,
+            filename: path.basename(srcPath),
+            // filenameRelative: src,
             sourceMaps: "inline",
-            // sourceFileName: srcPath
+            sourceFileName: srcPath
         };
         opts.plugins = [
             'manual-code-wrapper'
@@ -53,7 +60,7 @@
         if (path.extname(src) == ".ts" || path.extname(src) == ".tsx")
             opts.presets.push("@babel/preset-typescript");
         var output = babel.transform(contents, opts).code;
-        return output;
+        return { output, srcPath };
     }
     function useBabel(realPath) {
         var useBabel = false;
@@ -109,7 +116,7 @@
             const newRequire = createRequire(realPath);
             var new_require = requireScript(newRequire, script_dir, script_name);
             var use_babel = useBabel(src_location);
-            var output = use_babel ? parseBabel(realPath) : fs.readFileSync(realPath);
+            var { output, srcPath } = use_babel ? parseBabel(realPath) : fs.readFileSync(realPath);
             module = ((global_object) => {
                 global_object.exports = {};
                 global_object.module = { exports: global_object.exports };
@@ -124,7 +131,8 @@
                 global_object.__dirname = script_dir;
                 global_object.__filename = script_name;
                 if (!require_script.isWorker) {
-                    vm.runInThisContext(use_babel ? output : require_script.wrap(output), realPath);
+                    var script = new vm.Script(use_babel ? output : require_script.wrap(output), srcPath || realPath);
+                    script.runInThisContext();
                 } else {
                     eval(use_babel ? output : require_script.wrap(output));
                 }
@@ -197,7 +205,7 @@
                 }
             }
         };
-    };
+    }
 
 
 })();
